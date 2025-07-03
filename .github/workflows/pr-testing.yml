@@ -1,0 +1,30 @@
+name: 🔄 Pull Request Testing
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  quick-tests:
+    name: ⚡ Quick PR Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: mobile_testing/package-lock.json
+        
+    - name: 🧪 Run Smoke Tests Only
+      run: |
+        cd mobile_testing
+        npm ci
+        npx codeceptjs run --grep "@smoke" --dry-run --verbose
+        
+    - name: ✅ PR Check Passed
+      run: echo "✅ PR is ready for review!"

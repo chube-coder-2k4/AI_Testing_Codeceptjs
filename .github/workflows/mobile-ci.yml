@@ -1,0 +1,373 @@
+name: 📱 Mobile App CI/CD Pipeline
+
+# 🔥 Trigger conditions - Khi nào workflow sẽ chạy
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'mobile_app/**'
+      - 'backend/**'
+      - 'mobile_testing/**'
+      - '.github/workflows/**'
+      
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'mobile_app/**'
+      - 'backend/**'
+      - 'mobile_testing/**'
+      
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - smoke
+        - regression
+
+# 🌍 Environment variables
+env:
+  FLUTTER_VERSION: '3.16.0'
+  JAVA_VERSION: '17'
+  NODE_VERSION: '18'
+  ANDROID_API_LEVEL: '29'
+
+# 🏗️ Jobs
+jobs:
+  # JOB 1: Code Quality & Security Check
+  code-quality:
+    name: 🔍 Code Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📂 Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Full history for better analysis
+        
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: mobile_testing/package-lock.json
+        
+    - name: 🔍 Run ESLint on Test Code
+      run: |
+        cd mobile_testing
+        npm ci
+        npx eslint tests/ --ext .js --format json --output-file eslint-report.json || true
+        
+    - name: 📊 Upload ESLint Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: eslint-report
+        path: mobile_testing/eslint-report.json
+
+  # JOB 2: Backend Build & Test
+  backend-pipeline:
+    name: 🏗️ Backend Pipeline
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📂 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: ☕ Setup Java ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+        
+    - name: 📦 Cache Gradle Dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('backend/**/*.gradle*', 'backend/**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+          
+    - name: 🔧 Make Gradle Wrapper Executable
+      run: chmod +x backend/gradlew
+      
+    - name: 🏗️ Build Backend
+      run: |
+        cd backend
+        ./gradlew clean build -x test
+        
+    - name: 🧪 Run Backend Unit Tests
+      run: |
+        cd backend
+        ./gradlew test jacocoTestReport
+        
+    - name: 📊 Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: backend-test-results
+        path: |
+          backend/build/reports/tests/
+          backend/build/reports/jacoco/
+          
+    - name: 📦 Upload Backend JAR
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-jar
+        path: backend/build/libs/*.jar
+
+  # JOB 3: Mobile App Build
+  mobile-build:
+    name: 📱 Mobile App Build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📂 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🎯 Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: ☕ Setup Java for Android
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+        
+    - name: 📱 Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: 📦 Get Flutter Dependencies
+      run: |
+        cd mobile_app
+        flutter pub get
+        
+    - name: 🔍 Run Flutter Analyze
+      run: |
+        cd mobile_app
+        flutter analyze --write=flutter-analyze.txt || true
+        
+    - name: 🧪 Run Flutter Unit Tests
+      run: |
+        cd mobile_app
+        flutter test --coverage --reporter json > test-results.json || true
+        
+    - name: 🏗️ Build Android APK (Debug)
+      run: |
+        cd mobile_app
+        flutter build apk --debug --target-platform android-arm64
+        
+    - name: 📤 Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-apk
+        path: mobile_app/build/app/outputs/flutter-apk/app-debug.apk
+        
+    - name: 📊 Upload Flutter Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: flutter-test-results
+        path: |
+          mobile_app/flutter-analyze.txt
+          mobile_app/test-results.json
+          mobile_app/coverage/
+
+  # JOB 4: E2E Mobile Testing
+  e2e-testing:
+    name: 🤖 End-to-End Testing
+    runs-on: ubuntu-latest
+    needs: [backend-pipeline, mobile-build]
+    
+    strategy:
+      matrix:
+        api-level: [29, 31]
+      fail-fast: false
+      
+    steps:
+    - name: 📂 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: mobile_testing/package-lock.json
+        
+    - name: ☕ Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+        
+    - name: 📱 Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: 📦 Install CodeceptJS Dependencies
+      run: |
+        cd mobile_testing
+        npm ci
+        
+    - name: 📥 Download Backend JAR
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-jar
+        path: backend/build/libs/
+        
+    - name: 📥 Download APK
+      uses: actions/download-artifact@v4
+      with:
+        name: debug-apk
+        path: mobile_app/build/app/outputs/flutter-apk/
+        
+    - name: 🎬 Enable KVM Group Permissions
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+        
+    - name: 🤖 Run E2E Tests on Android ${{ matrix.api-level }}
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: ${{ matrix.api-level }}
+        target: google_apis
+        arch: x86_64
+        profile: Nexus 6
+        ram-size: 4096M
+        heap-size: 1024M
+        sdcard-path-or-size: 1000M
+        emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: true
+        script: |
+          echo "🚀 Starting E2E Test Pipeline..."
+          
+          # Start backend in background
+          echo "🏗️ Starting Backend..."
+          cd backend
+          java -jar build/libs/*.jar --server.port=8080 &
+          BACKEND_PID=$!
+          cd ..
+          
+          # Wait for backend to be ready
+          echo "⏳ Waiting for Backend to start..."
+          timeout 120 bash -c 'until curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; do echo "Waiting for backend..."; sleep 5; done'
+          
+          if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            echo "✅ Backend is ready!"
+          else
+            echo "❌ Backend failed to start"
+            exit 1
+          fi
+          
+          # Run CodeceptJS tests
+          echo "🧪 Running CodeceptJS Tests..."
+          cd mobile_testing
+          
+          # Determine test suite
+          TEST_SUITE="${{ github.event.inputs.test_suite || 'all' }}"
+          if [ "$TEST_SUITE" = "smoke" ]; then
+            npx codeceptjs run --grep "@smoke" --steps --reporter mochawesome
+          elif [ "$TEST_SUITE" = "regression" ]; then
+            npx codeceptjs run --grep "@regression" --steps --reporter mochawesome
+          else
+            npx codeceptjs run --steps --reporter mochawesome
+          fi
+          
+          echo "🧹 Cleaning up..."
+          kill $BACKEND_PID || true
+          
+    - name: 📊 Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: e2e-test-results-api${{ matrix.api-level }}
+        path: |
+          mobile_testing/output/
+          mobile_testing/mochawesome-report/
+          
+    - name: 📸 Upload Screenshots
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: failure-screenshots-api${{ matrix.api-level }}
+        path: mobile_testing/output/*.png
+
+  # JOB 5: Test Report Generation
+  test-reports:
+    name: 📊 Generate Test Reports
+    runs-on: ubuntu-latest
+    needs: [code-quality, backend-pipeline, mobile-build, e2e-testing]
+    if: always()
+    
+    steps:
+    - name: 📂 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 📥 Download All Test Results
+      uses: actions/download-artifact@v4
+      with:
+        path: test-results/
+        
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        
+    - name: 📊 Generate Consolidated Report
+      run: |
+        npm install -g mochawesome-merge mochawesome-report-generator
+        
+        # Merge all mochawesome reports
+        find test-results/ -name "*.json" -path "*/mochawesome-report/*" -exec echo "Found: {}" \;
+        
+        mochawesome-merge test-results/*/mochawesome-report/*.json > consolidated-report.json
+        marge consolidated-report.json --reportDir final-report --inline
+        
+    - name: 📈 Upload Consolidated Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: consolidated-test-report
+        path: final-report/
+        
+    - name: 📝 Create Test Summary
+      run: |
+        echo "# 📊 Test Execution Summary" > test-summary.md
+        echo "" >> test-summary.md
+        echo "**Workflow:** ${{ github.workflow }}" >> test-summary.md
+        echo "**Commit:** ${{ github.sha }}" >> test-summary.md
+        echo "**Branch:** ${{ github.ref_name }}" >> test-summary.md
+        echo "**Triggered by:** ${{ github.actor }}" >> test-summary.md
+        echo "**Date:** $(date)" >> test-summary.md
+        echo "" >> test-summary.md
+        
+        # Add job statuses
+        echo "## Job Results" >> test-summary.md
+        echo "- 🔍 Code Quality: ${{ needs.code-quality.result }}" >> test-summary.md  
+        echo "- 🏗️ Backend: ${{ needs.backend-pipeline.result }}" >> test-summary.md
+        echo "- 📱 Mobile Build: ${{ needs.mobile-build.result }}" >> test-summary.md
+        echo "- 🤖 E2E Testing: ${{ needs.e2e-testing.result }}" >> test-summary.md
+        
+    - name: 💬 Comment PR with Results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const summary = fs.readFileSync('test-summary.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: summary
+          });

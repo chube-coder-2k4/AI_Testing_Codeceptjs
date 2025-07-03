@@ -1,0 +1,32 @@
+name: 🌙 Nightly Regression Tests
+
+on:
+  schedule:
+    # Chạy lúc 2 giờ sáng UTC mỗi ngày
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  nightly-regression:
+    name: 🌙 Full Regression Suite
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 🧪 Run Full Test Suite
+      uses: ./.github/workflows/mobile-ci.yml
+      with:
+        test_suite: 'regression'
+        
+    - name: 📧 Send Email Report
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "🚨 Nightly Tests Failed - $(date)"
+        body: "Nightly regression tests failed. Check GitHub Actions for details."
+        to: chube-coder-2k4@example.com
