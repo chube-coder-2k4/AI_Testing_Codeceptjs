@@ -1,0 +1,23 @@
+{
+  "name": "mobile_flutter",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@wdio/appium-service": "^9.16.2",
+    "appium": "^2.19.0",
+    "appium-inspector-plugin": "^2025.3.1",
+    "appium-uiautomator2-driver": "^4.2.4",
+    "appium-xcuitest-driver": "^9.9.1",
+    "codeceptjs": "^3.7.3"
+  },
+  "dependencies": {
+    "webdriverio": "^8.6.3"
+  }
+}
