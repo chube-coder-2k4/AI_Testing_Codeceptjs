@@ -1,23 +1,24 @@
 {
-  "name": "mobile_flutter",
+  "name": "mobile-testing-codeceptjs",
   "version": "1.0.0",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "@wdio/appium-service": "^9.16.2",
-    "appium": "^2.19.0",
-    "appium-inspector-plugin": "^2025.3.1",
-    "appium-uiautomator2-driver": "^4.2.4",
-    "appium-xcuitest-driver": "^9.9.1",
-    "codeceptjs": "^3.7.3"
-  },
-  "dependencies": {
-    "webdriverio": "^8.6.3"
+    "test": "codeceptjs run --steps",
+    "test:smoke": "codeceptjs run --grep @smoke --steps",
+    "test:regression": "codeceptjs run --grep @regression --steps",
+    "test:parallel": "codeceptjs run-multiple parallel",
+    
+    "test:ci": "codeceptjs run --steps --reporter mochawesome",
+    "test:ci:smoke": "codeceptjs run --grep @smoke --steps --reporter mochawesome",
+    "test:ci:regression": "codeceptjs run --grep @regression --steps --reporter mochawesome",
+    
+    "report:merge": "mochawesome-merge output/*.json > report.json",
+    "report:generate": "marge report.json --reportDir mochawesome-report --inline",
+    "report:open": "open mochawesome-report/mochawesome.html",
+    
+    "lint": "eslint tests/ --ext .js",
+    "lint:fix": "eslint tests/ --ext .js --fix",
+    
+    "ci:install": "npm ci",
+    "ci:test": "npm run test:ci && npm run report:generate"
   }
 }
